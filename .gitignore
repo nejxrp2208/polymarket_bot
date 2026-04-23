@@ -1,0 +1,39 @@
+# ── Credentials — NIKOLI v git! ─────────────────────────────
+.env
+*.env
+
+# ── Runtime state ────────────────────────────────────────────
+state_snapshot.json
+logs/
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual env ──────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── DB dump / backups ────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
