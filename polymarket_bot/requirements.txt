@@ -10,6 +10,7 @@ ntplib>=0.4.0
 psutil>=5.9.0
 sbe==0.4.3
 rich>=13.0.0
+aiohttp>=3.9.0
 
 # Namestitev:
 # pip install -r requirements.txt
