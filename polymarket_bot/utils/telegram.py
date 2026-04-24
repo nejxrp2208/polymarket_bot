@@ -1,43 +1,35 @@
 """
 TELEGRAM NOTIFIKACIJE
-Pošilja sporočila za: fill, exit (PnL), dnevni summary.
+Pošilja sporočila za: start, fill, exit (PnL), dnevni summary.
 Fire-and-forget — napake ne crashajo bota.
+Uporablja requests v threadu (brez aiohttp session problemov).
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from datetime import datetime, timezone
 
-import aiohttp
 
-_TOKEN: str = ""
-_CHAT_ID: str = ""
-_session: aiohttp.ClientSession | None = None
-
-
-def _init() -> bool:
-    global _TOKEN, _CHAT_ID
-    if _TOKEN:
-        return True
-    _TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    _CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-    return bool(_TOKEN and _CHAT_ID)
+def _get_creds() -> tuple[str, str]:
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    return token, chat_id
 
 
-async def _send(text: str) -> None:
-    if not _init():
+def _send_sync(text: str) -> None:
+    """Sync send v ločenem threadu — ne blokira event loopa."""
+    token, chat_id = _get_creds()
+    if not token or not chat_id:
         return
-    global _session
     try:
-        if _session is None or _session.closed:
-            _session = aiohttp.ClientSession()
-        url = f"https://api.telegram.org/bot{_TOKEN}/sendMessage"
-        await _session.post(
-            url,
-            json={"chat_id": _CHAT_ID, "text": text, "parse_mode": "HTML"},
-            timeout=aiohttp.ClientTimeout(total=5),
+        import requests
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            timeout=5,
         )
     except Exception:
         pass
@@ -45,10 +37,16 @@ async def _send(text: str) -> None:
 
 def notify(text: str) -> None:
     """Fire-and-forget — klicej kjerkoli brez await."""
-    try:
-        asyncio.create_task(_send(text))
-    except RuntimeError:
-        pass
+    threading.Thread(target=_send_sync, args=(text,), daemon=True).start()
+
+
+def notify_start(mode: str, balance: float) -> None:
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    notify(
+        f"🚀 <b>BOT ZAGNAN [{mode.upper()}]</b>\n"
+        f"Balance: <b>${balance:.2f} USDC</b>\n"
+        f"⏰ {ts} UTC"
+    )
 
 
 def notify_fill(side: str, price: float, size_usdc: float, slug: str, mode: str) -> None:

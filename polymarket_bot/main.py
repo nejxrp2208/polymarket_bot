@@ -34,6 +34,7 @@ from core.discovery import (
     wait_for_first_binance_tick,
 )
 from core.exit_monitor import exit_monitor_task
+from utils.telegram import notify_start
 from core.health import health_monitor_task, lag_monitor_task
 from core.vol_calibrator import vol_calibrator_task
 from dashboard.ui import dashboard_task
@@ -256,6 +257,7 @@ async def main() -> None:
         pass
 
     await init_current_market(state)
+    notify_start(exec_cfg.mode, state.usdc_balance)
 
     loop = asyncio.get_running_loop()
     if sys.platform != "win32":
