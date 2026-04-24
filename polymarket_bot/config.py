@@ -131,3 +131,18 @@ class FastScalpConfig:
 
 
 FAST_SCALP_CONFIG = FastScalpConfig()
+
+
+@dataclass
+class ZoneFlipConfig:
+    enabled: bool = True
+    entry_window_max_s: int = 120
+    entry_zone_low: float = 0.67
+    entry_zone_high: float = 0.70
+    stop_loss_yes_mid_low: float = 0.25
+    stop_loss_yes_mid_high: float = 0.75
+    max_spread: float = 0.06
+    kelly_fraction: float = 0.30
+
+
+ZONE_FLIP_CONFIG = ZoneFlipConfig()

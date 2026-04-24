@@ -317,6 +317,9 @@ class ExecutionLayer:
                 order_type=signal.order_type,
                 entry_mode=signal.mode,
             )
+            if signal.mode == "ZONE_FLIP":
+                self.state.zone_flip_positions[signal.side] = \
+                    self.state.open_positions[signal.side]
             self.state.trades_this_window[signal.slug] = (
                 self.state.trades_this_window.get(signal.slug, 0) + 1
             )

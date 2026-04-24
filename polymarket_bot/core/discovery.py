@@ -77,6 +77,8 @@ async def discovery_task(state: State) -> None:
             state.trades_this_window.clear()
             state.traded_directions.clear()
             state.pending_directions.clear()
+            state.zone_flip_positions.clear()
+            state.zone_flip_reversed.clear()
 
         except asyncio.CancelledError:
             raise

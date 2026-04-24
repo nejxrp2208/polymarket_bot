@@ -109,6 +109,10 @@ async def _check_position(
                 await _fire_reversal_entry("YES", pos, state, execution, risk, q)
         return
 
+    if pos.entry_mode == "ZONE_FLIP":
+        await _check_zone_flip_exit(pos, state, execution, risk, yes_mid)
+        return
+
     if pos.entry_mode == "FAST_SCALP":
         await _check_fast_scalp_exit(pos, state, execution, risk, yes_mid)
         return
@@ -119,6 +123,76 @@ async def _check_position(
     if unrealized <= -EXIT_CONFIG.stop_loss_cents:
         log("WARN", "exit", f"stop-loss {pos.side} | unrealized={unrealized:.3f}")
         await _close_position(pos, state, execution, risk, "stop_loss")
+
+
+async def _check_zone_flip_exit(
+    pos: PositionState,
+    state: State,
+    execution: ExecutionLayer,
+    risk: RiskManager,
+    yes_mid: float,
+) -> None:
+    from config import ZONE_FLIP_CONFIG
+    cfg = ZONE_FLIP_CONFIG
+    slug = pos.slug
+
+    # Reversal pozicija — drži do market expiry, brez stop lossa
+    if state.zone_flip_reversed.get(slug, False):
+        return
+
+    stop_triggered = False
+    if pos.side == "YES" and yes_mid <= cfg.stop_loss_yes_mid_low:
+        log("WARN", "exit", f"[ZONE_FLIP] stop YES | yes_mid={yes_mid:.3f} <= {cfg.stop_loss_yes_mid_low}")
+        stop_triggered = True
+    elif pos.side == "NO" and yes_mid >= cfg.stop_loss_yes_mid_high:
+        log("WARN", "exit", f"[ZONE_FLIP] stop NO | yes_mid={yes_mid:.3f} >= {cfg.stop_loss_yes_mid_high}")
+        stop_triggered = True
+
+    if not stop_triggered:
+        return
+
+    closed = await _close_position(pos, state, execution, risk, "zone_flip_stop_loss")
+    if not closed:
+        return
+
+    state.zone_flip_positions.pop(pos.side, None)
+    state.zone_flip_reversed[slug] = True
+
+    # Odpri reversal pozicijo
+    q = state.quotes.get(slug)
+    m = state.markets.get(slug)
+    buf = state.price_buffer.get("btcusdt")
+    if not q or not m:
+        return
+
+    reversal_side = "NO" if pos.side == "YES" else "YES"
+    if reversal_side == "YES":
+        token_id = m.yes_id
+        reversal_price = round(q.yes_ask, 3)
+    else:
+        token_id = m.no_id
+        reversal_price = round(1.0 - q.yes_bid, 3)
+
+    now_ns = time.time_ns()
+    reversal_signal = Signal(
+        slug=slug,
+        token_id=token_id,
+        side=reversal_side,
+        price=reversal_price,
+        size_usdc=pos.size_usdc,
+        signal_ns=now_ns,
+        binance_ref_price=buf[-1][1] if buf else 0.0,
+        binance_ref_ns=buf[-1][0] if buf else now_ns,
+        edge_estimate=abs(yes_mid - 0.5),
+        order_type="FOK",
+        is_close=False,
+        mode="ZONE_FLIP",
+    )
+    log("INFO", "exit", f"[ZONE_FLIP] reversal → BUY {reversal_side} @ {reversal_price:.3f}")
+    asyncio.create_task(
+        execution.receive_signal(reversal_signal),
+        name=f"zoneflip_reversal_{slug}_{now_ns}",
+    )
 
 
 async def _check_fast_scalp_exit(

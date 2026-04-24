@@ -88,6 +88,20 @@ def notify_exit(side: str, entry: float, exit_price: float, pnl: float, reason: 
     )
 
 
+def notify_heartbeat(balance: float, pnl: float, wins: int, losses: int, open_pos: int) -> None:
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    total = wins + losses
+    wr = wins / max(1, total) * 100
+    notify(
+        f"💓 <b>BOT ŽIVI</b>\n"
+        f"Balance: <b>${balance:.2f} USDC</b>\n"
+        f"PnL danes: <b>{'+'if pnl>=0 else ''}{pnl:.2f} USDC</b>\n"
+        f"Trades: {total}  ✅{wins}  ❌{losses}  WR={wr:.0f}%\n"
+        f"Odprte pozicije: {open_pos}\n"
+        f"⏰ {ts} UTC"
+    )
+
+
 def notify_daily(balance: float, pnl: float, wins: int, losses: int) -> None:
     total = wins + losses
     wr = wins / max(1, total) * 100

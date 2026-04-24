@@ -147,6 +147,10 @@ class State:
     # strani v letu (signal sprejet, fill še čakamo)
     pending_directions: dict[str, set] = field(default_factory=dict)
     # slug → set of sides currently being dispatched this tick (dedup)
+    zone_flip_positions: dict[str, "PositionState"] = field(default_factory=dict)
+    # key = "YES"|"NO" — ločen tracking za ZONE_FLIP pozicije
+    zone_flip_reversed: dict[str, bool] = field(default_factory=dict)
+    # slug → True če smo že naredili reversal v tem oknu
 
     # ── Balance + execution ──────────────────────────────
     usdc_balance: float = 0.0

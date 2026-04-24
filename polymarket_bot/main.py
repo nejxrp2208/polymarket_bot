@@ -34,7 +34,7 @@ from core.discovery import (
     wait_for_first_binance_tick,
 )
 from core.exit_monitor import exit_monitor_task
-from utils.telegram import notify_start, notify_stop
+from utils.telegram import notify_heartbeat, notify_start, notify_stop
 from core.health import health_monitor_task, lag_monitor_task
 from core.vol_calibrator import vol_calibrator_task
 from dashboard.ui import dashboard_task
@@ -81,6 +81,23 @@ async def ntp_resync_task(state: State) -> None:
             raise
         except Exception as e:
             log("WARN", "ntp", f"resync napaka: {e}")
+
+
+async def heartbeat_task(state: State) -> None:
+    while True:
+        await asyncio.sleep(1800)  # vsakih 30 minut
+        try:
+            notify_heartbeat(
+                state.usdc_balance,
+                state.pnl_today,
+                state.paper_wins,
+                state.paper_losses,
+                len(state.open_positions),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
 
 
 async def btc_price_logger_task(state: State) -> None:
@@ -326,6 +343,10 @@ async def main() -> None:
         tg.create_task(
             btc_price_logger_task(state),
             name="btc_logger",
+        )
+        tg.create_task(
+            heartbeat_task(state),
+            name="heartbeat",
         )
 
 
