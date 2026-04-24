@@ -14,6 +14,7 @@ from config import EXIT_CONFIG, STRATEGY_CONFIG
 from logging_.db import log_exit
 from state import PositionState, Signal, State
 from utils.helpers import log
+from utils.telegram import notify_exit
 
 if TYPE_CHECKING:
     from execution.layer import ExecutionLayer
@@ -85,6 +86,7 @@ async def _check_position(
         )
         state.open_positions.pop(pos.side, None)
         log("INFO", "exit", f"market_expiry | side={pos.side} exit={exit_price:.2f} pnl={pnl:+.2f}")
+        notify_exit(pos.side, pos.entry_price, exit_price, pnl, "market_expiry", pos.slug)
         return
 
     q = state.quotes.get(pos.slug)
@@ -216,5 +218,6 @@ async def _close_position(
         )
         state.open_positions.pop(pos.side, None)
         log("INFO", "exit", f"{reason} | {pos.side} entry={pos.entry_price:.3f} exit={exit_value:.3f} pnl={pnl:+.2f}")
+        notify_exit(pos.side, pos.entry_price, exit_value, pnl, reason, pos.slug)
         return True
     return False

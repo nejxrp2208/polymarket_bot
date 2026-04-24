@@ -19,6 +19,7 @@ from py_clob_client.order_builder.constants import BUY
 
 import refs
 from config import CONFIG, EXEC_CONFIG, ExecutionConfig, RISK_CONFIG, STRATEGY_CONFIG
+from utils.telegram import notify_fill
 from execution.paper import paper_fok_fill, paper_gtc_fill
 from logging_.db import log_fill
 from state import (
@@ -332,6 +333,7 @@ class ExecutionLayer:
                     "order_id": fill.order_id,
                 }
             )
+            notify_fill(signal.side, fill.price, fill.size_usdc, signal.slug, self.config.mode)
 
         await log_fill(
             slug=signal.slug,
