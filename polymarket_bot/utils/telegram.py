@@ -23,16 +23,18 @@ def _send_sync(text: str) -> None:
     """Sync send v ločenem threadu — ne blokira event loopa."""
     token, chat_id = _get_creds()
     if not token or not chat_id:
+        print(f"[TELEGRAM] NAPAKA: TOKEN={bool(token)} CHAT_ID={bool(chat_id)}")
         return
     try:
         import requests
-        requests.post(
+        resp = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
             timeout=5,
         )
-    except Exception:
-        pass
+        print(f"[TELEGRAM] HTTP {resp.status_code}: {resp.text[:300]}")
+    except Exception as e:
+        print(f"[TELEGRAM] Exception: {e}")
 
 
 def notify(text: str) -> None:
@@ -45,6 +47,19 @@ def notify_start(mode: str, balance: float) -> None:
     notify(
         f"🚀 <b>BOT ZAGNAN [{mode.upper()}]</b>\n"
         f"Balance: <b>${balance:.2f} USDC</b>\n"
+        f"⏰ {ts} UTC"
+    )
+
+
+def notify_stop(balance: float, pnl: float, wins: int, losses: int) -> None:
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    total = wins + losses
+    wr = wins / max(1, total) * 100
+    notify(
+        f"🛑 <b>BOT USTAVLJEN</b>\n"
+        f"Balance: <b>${balance:.2f} USDC</b>\n"
+        f"PnL: <b>{'+'if pnl>=0 else ''}{pnl:.2f} USDC</b>\n"
+        f"Trades: {total}  ✅{wins}  ❌{losses}  WR={wr:.0f}%\n"
         f"⏰ {ts} UTC"
     )
 

@@ -34,7 +34,7 @@ from core.discovery import (
     wait_for_first_binance_tick,
 )
 from core.exit_monitor import exit_monitor_task
-from utils.telegram import notify_start
+from utils.telegram import notify_start, notify_stop
 from core.health import health_monitor_task, lag_monitor_task
 from core.vol_calibrator import vol_calibrator_task
 from dashboard.ui import dashboard_task
@@ -129,6 +129,8 @@ async def shutdown(state: State) -> None:
             raise
         except Exception:
             pass
+    notify_stop(state.usdc_balance, state.pnl_today, state.paper_wins, state.paper_losses)
+    import time; time.sleep(1)  # počakaj da thread pošlje
     log("INFO", "system", "clean shutdown")
 
 
