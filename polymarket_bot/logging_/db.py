@@ -76,6 +76,9 @@ def init_db() -> None:
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_sig_slug_ts ON signals(slug,ts_ms)"
     )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sig_mode ON signals(mode_label)"
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_fill_ts ON fills(ts_ms)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_exit_slug ON exits(slug)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_btc_ts ON btc_prices(ts_ms)")

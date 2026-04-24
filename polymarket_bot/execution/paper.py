@@ -19,6 +19,7 @@ async def paper_fok_fill(
     signal: Signal, state: State, config: RiskConfig
 ) -> FillResult | None:
     """15% zavrnitev + spread drift check. Konzervativna ocena."""
+    submit_ns = time.time_ns()
     await asyncio.sleep(EXEC_CONFIG.simulated_latency_ms / 1000)
     m = state.quotes.get(signal.slug)
     if m is None:
@@ -44,12 +45,12 @@ async def paper_fok_fill(
             f"[PAPER] FOK rejected (rate={reject_rate:.0%})",
         )
         return None
-    await asyncio.sleep(EXEC_CONFIG.simulated_latency_ms / 1000)
+    fill_ns = submit_ns + int(EXEC_CONFIG.simulated_latency_ms * 1_000_000)
     return FillResult(
-        order_id=f"PAPER_FOK_{int(time.time_ns())}",
+        order_id=f"PAPER_FOK_{fill_ns}",
         price=signal.price,
         size_usdc=signal.size_usdc,
-        fill_ns=time.time_ns(),
+        fill_ns=fill_ns,
     )
 
 

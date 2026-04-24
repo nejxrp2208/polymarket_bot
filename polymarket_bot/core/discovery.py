@@ -76,6 +76,7 @@ async def discovery_task(state: State) -> None:
             # Reset per-window dedup
             state.trades_this_window.clear()
             state.traded_directions.clear()
+            state.pending_directions.clear()
 
         except asyncio.CancelledError:
             raise

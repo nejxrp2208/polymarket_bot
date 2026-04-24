@@ -74,6 +74,8 @@ class RiskManager:
         if self.state.usdc_balance > self.state.peak_balance:
             self.state.peak_balance = self.state.usdc_balance
 
+        self._check_drawdown()
+
         # Posodobi trade log za dashboard
         for e in reversed(refs.trade_log):
             if e.get("outcome") == "PENDING":

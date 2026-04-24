@@ -43,7 +43,7 @@ class PositionState:
 
 @dataclass
 class FeeConfig:
-    fee_rate_bps: int = 0
+    fee_rate_bps: int = 180
     # Crypto maker rebate = 20% (Polymarket docs, april 2026)
     maker_rebate: float = 0.20
 
@@ -145,6 +145,8 @@ class State:
     # key = "YES" | "NO" — obe strani lahko odprti hkrati
     pending_sides: set = field(default_factory=set)
     # strani v letu (signal sprejet, fill še čakamo)
+    pending_directions: dict[str, set] = field(default_factory=dict)
+    # slug → set of sides currently being dispatched this tick (dedup)
 
     # ── Balance + execution ──────────────────────────────
     usdc_balance: float = 0.0

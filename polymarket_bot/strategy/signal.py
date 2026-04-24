@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 from scipy.special import ndtr as norm_cdf
 
-from config import CONFIG, STRATEGY_CONFIG
+from config import CONFIG, FAST_SCALP_CONFIG, STRATEGY_CONFIG
 from logging_.db import log_signal
 from state import Signal, State
 from utils.helpers import log, seconds_until_rollover
@@ -205,10 +205,12 @@ def compute_strategy_signal(
         return None
     if m.yes_bid < cfg.min_yes_bid or m.yes_ask > cfg.max_yes_ask:
         return None
-    # 6. BSM fair value — FIX: side po fair_yes, ne po rough_edge
+    # 6. BSM fair value z blagim Bayesian blendom (90% BSM, 10% market mid)
     price_change = (bn_now - cl_open) / cl_open
     z = price_change / (sigma * math.sqrt(window_remaining_s))
-    fair_yes = norm_cdf(z)
+    bsm_fair = norm_cdf(z)
+    yes_mid = (m.yes_bid + m.yes_ask) / 2.0
+    fair_yes = 0.90 * bsm_fair + 0.10 * yes_mid
     if fair_yes >= 0.5:
         direction = "BUY_YES"
         taker_price = m.yes_ask
@@ -293,7 +295,8 @@ def compute_strategy_signal(
 def compute_price_level_signal(
     slug: str, state: State, now_ns: int
 ) -> dict | None:
-    """Vstopi ko YES mid pride med 0.65-0.75 (UP) ali 0.25-0.35 (DOWN)."""
+    """Disabled — PRICE_LVL strategija povzroča preveč lažnih vhodov."""
+    return None
     window_remaining_s = seconds_until_rollover()
     if window_remaining_s > 150:
         return None
@@ -410,6 +413,72 @@ def compute_expiry_signal(
     }
 
 
+# ── FAST SCALP SIGNAL — kratkoročni momentum ────────────────
+
+
+def compute_fast_scalp_signal(
+    slug: str, state: State, now_ns: int
+) -> dict | None:
+    cfg = FAST_SCALP_CONFIG
+    if not cfg.enabled:
+        return None
+    window_remaining_s = seconds_until_rollover()
+    if not (cfg.entry_window_min_s <= window_remaining_s <= cfg.entry_window_max_s):
+        return None
+    m = state.quotes.get(slug)
+    if not m:
+        return None
+    if (now_ns - m.timestamp_ns) / 1e9 > CONFIG.stale_polymarket_s:
+        return None
+    if m.yes_ask - m.yes_bid > cfg.max_spread:
+        return None
+    yes_mid = (m.yes_bid + m.yes_ask) / 2.0
+    if not (cfg.min_yes_mid <= yes_mid <= cfg.max_yes_mid):
+        return None
+    # Momentum: BTC premik v zadnjih momentum_window_s sekundah
+    momentum = get_trend(state, cfg.momentum_window_s)
+    if abs(momentum) < cfg.min_momentum_pct / 100.0:
+        return None
+    buf = state.price_buffer.get("btcusdt")
+    if not buf:
+        return None
+    bn_now = buf[-1][1]
+    if momentum > 0:
+        direction = "BUY_YES"
+        side = "YES"
+        taker_price = round(m.yes_ask, 3)
+        edge = yes_mid - 0.5
+    else:
+        direction = "BUY_NO"
+        side = "NO"
+        taker_price = round(1.0 - m.yes_bid, 3)
+        edge = 0.5 - yes_mid
+    if edge <= 0:
+        return None
+    # Ne vstopi v že aktivno smer
+    if side in state.open_positions or side in state.pending_sides:
+        return None
+    log(
+        "INFO",
+        "strategy",
+        f"[FAST_SCALP] {direction} @ {taker_price:.3f} "
+        f"momentum={momentum*100:+.3f}% mid={yes_mid:.3f} window={window_remaining_s:.0f}s",
+    )
+    return {
+        "slug": slug,
+        "direction": direction,
+        "taker_price": taker_price,
+        "exec_edge": round(edge, 3),
+        "fair": yes_mid,
+        "yes_bid": m.yes_bid,
+        "yes_ask": m.yes_ask,
+        "window_remaining_s": window_remaining_s,
+        "order_type": "FOK",
+        "mode_label": "FAST_SCALP",
+        "binance_current": bn_now,
+    }
+
+
 # ── ON NEW TICK — SKUPNI ENTRY POINT ────────────────────────
 
 
@@ -429,150 +498,115 @@ def on_new_tick(
     if not can:
         return
 
-    # Price level signal — vzporedno, zadnjih 150s
-    pl = compute_price_level_signal(slug, state, now_ns)
-    if pl is not None:
-        m_pl = state.markets.get(slug)
-        buf_pl = state.price_buffer.get("btcusdt")
-        if m_pl:
-            pl_size = risk.compute_risk_sized_amount(STRATEGY_CONFIG.kelly_fraction)
-            if pl_size > 0:
-                pl_signal = Signal(
-                    slug=slug,
-                    token_id=(m_pl.yes_id if pl["direction"] == "BUY_YES" else m_pl.no_id),
-                    side="YES" if pl["direction"] == "BUY_YES" else "NO",
-                    price=pl["taker_price"],
-                    size_usdc=pl_size,
-                    signal_ns=now_ns,
-                    binance_ref_price=pl["binance_current"],
-                    binance_ref_ns=buf_pl[-1][0] if buf_pl else now_ns,
-                    edge_estimate=pl["exec_edge"],
-                    order_type="FOK",
-                    mode="PRICE_LVL",
-                )
-                asyncio.create_task(
-                    execution.receive_signal(pl_signal),
-                    name=f"pricelevel_{slug}_{now_ns}",
-                )
-                asyncio.create_task(
-                    log_signal(
-                        slug=slug,
-                        signal_dict=pl,
-                        scored=None,
-                        sigma=state.sigmas.get("btcusdt", 0.0),
-                        btc_price=pl["binance_current"],
-                        sent=True,
-                        mode_label="PRICE_LVL",
-                    )
-                )
+    buf = state.price_buffer.get("btcusdt")
 
-    # Expiry signal — vzporedno, neodvisno od glavne strategije
-    expiry = compute_expiry_signal(slug, state, now_ns)
-    if expiry is not None:
-        m_exp = state.markets.get(slug)
-        buf_exp = state.price_buffer.get("btcusdt")
-        if m_exp:
-            exp_size = risk.compute_risk_sized_amount(STRATEGY_CONFIG.kelly_fraction)
-            if exp_size > 0:
-                exp_signal = Signal(
-                    slug=slug,
-                    token_id=(
-                        m_exp.yes_id if expiry["direction"] == "BUY_YES" else m_exp.no_id
-                    ),
-                    side="YES" if expiry["direction"] == "BUY_YES" else "NO",
-                    price=expiry["taker_price"],
-                    size_usdc=exp_size,
-                    signal_ns=now_ns,
-                    binance_ref_price=expiry["binance_current"],
-                    binance_ref_ns=buf_exp[-1][0] if buf_exp else now_ns,
-                    edge_estimate=expiry["exec_edge"],
-                    order_type="FOK",
-                    mode="EXPIRY",
-                )
+    # FAST_SCALP signal — dedup je v compute_fast_scalp_signal + execution prechecks
+    fs = compute_fast_scalp_signal(slug, state, now_ns)
+    if fs is not None:
+        m_fs = state.markets.get(slug)
+        if m_fs:
+            fs_size = risk.compute_risk_sized_amount(FAST_SCALP_CONFIG.kelly_fraction)
+            if fs_size > 0:
+                fs_side = "YES" if fs["direction"] == "BUY_YES" else "NO"
                 asyncio.create_task(
-                    execution.receive_signal(exp_signal),
-                    name=f"expiry_{slug}_{now_ns}",
-                )
-                asyncio.create_task(
-                    log_signal(
+                    execution.receive_signal(Signal(
                         slug=slug,
-                        signal_dict=expiry,
-                        scored=None,
+                        token_id=(m_fs.yes_id if fs["direction"] == "BUY_YES" else m_fs.no_id),
+                        side=fs_side,
+                        price=fs["taker_price"],
+                        size_usdc=fs_size,
+                        signal_ns=now_ns,
+                        binance_ref_price=fs["binance_current"],
+                        binance_ref_ns=buf[-1][0] if buf else now_ns,
+                        edge_estimate=fs["exec_edge"],
+                        order_type="FOK",
+                        mode="FAST_SCALP",
+                    )),
+                    name=f"fastscalp_{slug}_{now_ns}",
+                )
+                asyncio.create_task(log_signal(
+                    slug=slug, signal_dict=fs, scored=None,
+                    sigma=state.sigmas.get("btcusdt", 0.0),
+                    btc_price=fs["binance_current"],
+                    sent=True, mode_label="FAST_SCALP",
+                ))
+
+    # EXPIRY mutex — samo če ni odprtih pozicij ali pending strani
+    if not state.open_positions and not state.pending_sides:
+        expiry = compute_expiry_signal(slug, state, now_ns)
+        if expiry is not None:
+            m_exp = state.markets.get(slug)
+            if m_exp:
+                exp_size = risk.compute_risk_sized_amount(STRATEGY_CONFIG.kelly_fraction)
+                if exp_size > 0:
+                    exp_side = "YES" if expiry["direction"] == "BUY_YES" else "NO"
+                    asyncio.create_task(
+                        execution.receive_signal(Signal(
+                            slug=slug,
+                            token_id=(m_exp.yes_id if expiry["direction"] == "BUY_YES" else m_exp.no_id),
+                            side=exp_side,
+                            price=expiry["taker_price"],
+                            size_usdc=exp_size,
+                            signal_ns=now_ns,
+                            binance_ref_price=expiry["binance_current"],
+                            binance_ref_ns=buf[-1][0] if buf else now_ns,
+                            edge_estimate=expiry["exec_edge"],
+                            order_type="FOK",
+                            mode="EXPIRY",
+                        )),
+                        name=f"expiry_{slug}_{now_ns}",
+                    )
+                    asyncio.create_task(log_signal(
+                        slug=slug, signal_dict=expiry, scored=None,
                         sigma=state.sigmas.get("btcusdt", 0.0),
                         btc_price=expiry["binance_current"],
-                        sent=True,
-                        mode_label="EXPIRY",
-                    )
-                )
+                        sent=True, mode_label="EXPIRY",
+                    ))
 
+    # BSM signal
     raw = compute_strategy_signal(slug, state, now_ns)
     if raw is None:
         return
 
-    # Quarter Kelly fraction
     direction = raw["direction"]
-    fair_prob = (
-        raw["fair"] if direction == "BUY_YES" else 1.0 - raw["fair"]
-    )
+    fair_prob = raw["fair"] if direction == "BUY_YES" else 1.0 - raw["fair"]
     taker = raw["taker_price"]
     order_type = raw["order_type"]
-    fee_pu = (
-        0.0
-        if order_type == "GTC"
-        else state.fee_config.fee_usdc(taker, 1.0)
-    )
+    fee_pu = 0.0 if order_type == "GTC" else state.fee_config.fee_usdc(taker, 1.0)
     net_odds = (1.0 - taker) / taker if taker > 0 else 0
-    effective_b = (
-        net_odds - fee_pu / taker
-        if taker > 0 and net_odds > 0
-        else 0
-    )
+    effective_b = net_odds - fee_pu / taker if taker > 0 and net_odds > 0 else 0
     if effective_b <= 0:
         return
-    full_kelly = (
-        fair_prob * effective_b - (1 - fair_prob)
-    ) / effective_b
-    quarter_k = max(
-        0.0, full_kelly * STRATEGY_CONFIG.kelly_fraction
-    )
+    full_kelly = (fair_prob * effective_b - (1 - fair_prob)) / effective_b
+    quarter_k = max(0.0, full_kelly * STRATEGY_CONFIG.kelly_fraction)
 
     size = risk.compute_risk_sized_amount(quarter_k)
     if size <= 0:
         return
 
-    asyncio.create_task(
-        log_signal(
-            slug=slug,
-            signal_dict=raw,
-            scored=None,
-            sigma=state.sigmas.get("btcusdt", 0.0),
-            btc_price=raw["binance_current"],
-            sent=True,
-            mode_label=raw.get("mode_label", "BSM"),
-        )
-    )
-
     m = state.markets.get(slug)
     if not m:
         return
-    buf = state.price_buffer.get("btcusdt")
 
-    signal = Signal(
-        slug=slug,
-        token_id=(
-            m.yes_id if direction == "BUY_YES" else m.no_id
-        ),
-        side="YES" if direction == "BUY_YES" else "NO",
-        price=taker,
-        size_usdc=size,
-        signal_ns=now_ns,
-        binance_ref_price=raw["binance_current"],
-        binance_ref_ns=buf[-1][0] if buf else now_ns,
-        edge_estimate=raw["exec_edge"],
-        order_type=order_type,
-    )
-
+    bsm_side = "YES" if direction == "BUY_YES" else "NO"
+    asyncio.create_task(log_signal(
+        slug=slug, signal_dict=raw, scored=None,
+        sigma=state.sigmas.get("btcusdt", 0.0),
+        btc_price=raw["binance_current"],
+        sent=True, mode_label=raw.get("mode_label", "BSM"),
+    ))
     asyncio.create_task(
-        execution.receive_signal(signal),
+        execution.receive_signal(Signal(
+            slug=slug,
+            token_id=(m.yes_id if direction == "BUY_YES" else m.no_id),
+            side=bsm_side,
+            price=taker,
+            size_usdc=size,
+            signal_ns=now_ns,
+            binance_ref_price=raw["binance_current"],
+            binance_ref_ns=buf[-1][0] if buf else now_ns,
+            edge_estimate=raw["exec_edge"],
+            order_type=order_type,
+        )),
         name=f"exec_{slug}_{now_ns}",
     )

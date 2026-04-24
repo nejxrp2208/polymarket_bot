@@ -72,8 +72,8 @@ class StrategyConfig:
     kelly_fraction: float = 0.50    # half-Kelly
     kelly_max_fraction: float = 0.50
     fixed_size_usdc: float = 10.0
-    min_yes_bid: float = 0.05
-    max_yes_ask: float = 0.95
+    min_yes_bid: float = 0.30   # ne trguj pod 30% (trg že odločen)
+    max_yes_ask: float = 0.70   # ne trguj nad 70% (trg že odločen)
     max_spread: float = 0.15
     min_poly_vol: float = 0.12      # stdev YES mid zadnjih 60s
 
@@ -108,3 +108,26 @@ class ExitConfig:
 
 
 EXIT_CONFIG = ExitConfig()
+
+
+@dataclass
+class FastScalpConfig:
+    enabled: bool = True
+    # Vstop: BTC momentum v zadnjih momentum_window_s sekundah
+    momentum_window_s: int = 30
+    min_momentum_pct: float = 0.05      # min 0.05% premik za vstop
+    # Okno: samo med 45-240s pred expiry (ne prepozno, ne prezgodaj)
+    entry_window_min_s: int = 45
+    entry_window_max_s: int = 240
+    # Exit thresholdi
+    take_profit_cents: float = 0.07     # +7c profit exit
+    stop_loss_cents: float = 0.12       # -12c stop loss
+    # Market filter
+    max_spread: float = 0.08            # tighter spread req
+    min_yes_mid: float = 0.35           # ne trguj na ekstremih
+    max_yes_mid: float = 0.65
+    # Sizing: manjša pozicija
+    kelly_fraction: float = 0.25        # quarter of normal kelly
+
+
+FAST_SCALP_CONFIG = FastScalpConfig()

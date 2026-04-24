@@ -10,7 +10,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING
 
-from config import EXIT_CONFIG, STRATEGY_CONFIG
+from config import EXIT_CONFIG, FAST_SCALP_CONFIG, STRATEGY_CONFIG
 from logging_.db import log_exit
 from state import PositionState, Signal, State
 from utils.helpers import log
@@ -109,11 +109,32 @@ async def _check_position(
                 await _fire_reversal_entry("YES", pos, state, execution, risk, q)
         return
 
+    if pos.entry_mode == "FAST_SCALP":
+        await _check_fast_scalp_exit(pos, state, execution, risk, yes_mid)
+        return
+
     # BSM / EXPIRY pozicije: normalen stop_loss
     mid = yes_mid if pos.side == "YES" else 1.0 - yes_mid
     unrealized = mid - pos.entry_price
     if unrealized <= -EXIT_CONFIG.stop_loss_cents:
         log("WARN", "exit", f"stop-loss {pos.side} | unrealized={unrealized:.3f}")
+        await _close_position(pos, state, execution, risk, "stop_loss")
+
+
+async def _check_fast_scalp_exit(
+    pos: PositionState,
+    state: State,
+    execution: ExecutionLayer,
+    risk: RiskManager,
+    yes_mid: float,
+) -> None:
+    mid = yes_mid if pos.side == "YES" else 1.0 - yes_mid
+    unrealized = mid - pos.entry_price
+    if unrealized >= FAST_SCALP_CONFIG.take_profit_cents:
+        log("INFO", "exit", f"FAST_SCALP take-profit {pos.side} | unrealized={unrealized:+.3f}")
+        await _close_position(pos, state, execution, risk, "take_profit")
+    elif unrealized <= -FAST_SCALP_CONFIG.stop_loss_cents:
+        log("WARN", "exit", f"FAST_SCALP stop-loss {pos.side} | unrealized={unrealized:+.3f}")
         await _close_position(pos, state, execution, risk, "stop_loss")
 
 
