@@ -169,6 +169,16 @@ async def _check_zone_flip_exit(
 
     state.zone_flip_reversed[slug] = True
 
+    # Zadnjih no_reversal_last_s sekund — samo SL, brez reversala
+    try:
+        window_ts = int(slug.split("-")[-1])
+        secs_left = (window_ts + 300) - time.time()
+    except (ValueError, IndexError):
+        secs_left = 999
+    if secs_left <= cfg.no_reversal_last_s:
+        log("INFO", "exit", f"[ZONE_FLIP] stop-only (zadnjih {cfg.no_reversal_last_s}s) — brez reversala")
+        return
+
     # Odpri reversal pozicijo
     q = state.quotes.get(slug)
     m = state.markets.get(slug)
