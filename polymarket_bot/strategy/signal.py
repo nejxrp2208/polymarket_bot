@@ -566,7 +566,7 @@ def on_new_tick(
     # Filter: BTC mora biti vsaj $10 oddaljen od window open price
     open_price = state.window_open_price.get(slug, 0.0)
     btc_now = buf[-1][1] if buf else 0.0
-    if open_price > 0 and btc_now > 0 and abs(btc_now - open_price) < 10.0:
+    if open_price > 0 and btc_now > 0 and abs(btc_now - open_price) < 6.0:
         return
 
     # === INDEPENDENT STRATEGIES — bypass can_trade() ===
