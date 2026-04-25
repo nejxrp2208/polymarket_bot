@@ -138,6 +138,11 @@ async def polymarket_stream(state: State) -> None:
                                     from collections import deque
                                     state.polymarket_mid_buffer[slug] = deque(maxlen=600)
                                 state.polymarket_mid_buffer[slug].append((time.time_ns(), mid))
+                                from core.exit_monitor import check_sl_now
+                                asyncio.create_task(
+                                    check_sl_now(slug, mid, state),
+                                    name=f"sl_check_{slug}_{time.time_ns()}",
+                                )
                             state.last_polymarket_tick_ns[slug] = time.time_ns()
                             side = "YES" if asset_id == m.yes_id else "NO"
                             asyncio.create_task(

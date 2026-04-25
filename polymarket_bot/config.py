@@ -139,8 +139,8 @@ class ZoneFlipConfig:
     entry_window_max_s: int = 120
     entry_zone_low: float = 0.67
     entry_zone_high: float = 0.70
-    stop_loss_yes_mid_low: float = 0.27
-    stop_loss_yes_mid_high: float = 0.73
+    stop_loss_yes_mid_low: float = 0.28
+    stop_loss_yes_mid_high: float = 0.72
     no_reversal_last_s: int = 7
     max_spread: float = 0.06
     kelly_fraction: float = 0.30
@@ -155,8 +155,8 @@ class ExtremeZoneConfig:
     entry_window_max_s: int = 70       # samo zadnjih 70s pred expiry
     entry_zone_low: float = 0.91       # BSM fair YES zona: 0.91-0.95
     entry_zone_high: float = 0.95
-    stop_loss_yes_mid_low: float = 0.68
-    stop_loss_yes_mid_high: float = 0.32
+    stop_loss_yes_mid_low: float = 0.69
+    stop_loss_yes_mid_high: float = 0.31
     max_spread: float = 0.04
     kelly_fraction: float = 0.10
     reversal_enabled: bool = False

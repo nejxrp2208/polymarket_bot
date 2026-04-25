@@ -448,6 +448,24 @@ async def _fire_reversal_entry(
     )
 
 
+# ── Immediate SL check (called from quote stream) ────────────
+
+
+async def check_sl_now(slug: str, yes_mid: float, state: State) -> None:
+    """Klicej direktno iz Polymarket streama ob vsakem BBA eventu."""
+    import refs
+    execution = refs.execution_ref
+    risk = refs.risk_ref
+    if execution is None or risk is None:
+        return
+    for pos_key, pos in list(state.zone_flip_positions.items()):
+        if pos.slug == slug:
+            await _check_zone_flip_exit(pos, pos_key, state, execution, risk, yes_mid)
+    for pos_key, pos in list(state.extreme_zone_positions.items()):
+        if pos.slug == slug:
+            await _check_extreme_zone_exit(pos, pos_key, state, execution, risk, yes_mid)
+
+
 # ── Main loop ────────────────────────────────────────────────
 
 
