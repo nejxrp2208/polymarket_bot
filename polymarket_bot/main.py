@@ -162,11 +162,8 @@ def load_state_snapshot(state: State) -> None:
         state.sigmas_long = snap.get("sigmas_long", {})
         state.window_open_price = snap.get("window_open_price", {})
         state.usdc_balance = snap.get("usdc_balance", 0.0)
-        state.pnl_total = snap.get("pnl_total", 0.0)
         state.peak_balance = snap.get("peak_balance", 0.0)
-        state.paper_wins = snap.get("paper_wins", 0)
-        state.paper_losses = snap.get("paper_losses", 0)
-        state.paper_pnl_history = snap.get("paper_pnl_history", [])
+        # pnl_total, wins, losses se resetirajo ob vsakem zagonu
         age_s = time.time() - snap.get("timestamp", 0)
         log(
             "INFO",
