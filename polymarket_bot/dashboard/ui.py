@@ -155,8 +155,6 @@ def build_middle_panel(state: State) -> Panel:
     all_positions = []
     for pos in state.open_positions.values():
         all_positions.append((pos, pos.entry_mode))
-    for pos in state.fast_scalp_positions.values():
-        all_positions.append((pos, "FAST_SCALP"))
     for pos in state.zone_flip_positions.values():
         all_positions.append((pos, "ZONE_FLIP"))
     for pos in state.extreme_zone_positions.values():

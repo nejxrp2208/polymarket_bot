@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 from scipy.special import ndtr as norm_cdf
 
-from config import CONFIG, EXTREME_ZONE_CONFIG, FAST_SCALP_CONFIG, STRATEGY_CONFIG, ZONE_FLIP_CONFIG
+from config import CONFIG, EXTREME_ZONE_CONFIG, STRATEGY_CONFIG, ZONE_FLIP_CONFIG
 from logging_.db import log_signal
 from state import Signal, State
 from utils.helpers import log, seconds_until_rollover
@@ -413,70 +413,7 @@ def compute_expiry_signal(
     }
 
 
-# ── FAST SCALP SIGNAL — kratkoročni momentum ────────────────
-
-
-def compute_fast_scalp_signal(
-    slug: str, state: State, now_ns: int
-) -> dict | None:
-    cfg = FAST_SCALP_CONFIG
-    if not cfg.enabled:
-        return None
-    window_remaining_s = seconds_until_rollover()
-    if not (cfg.entry_window_min_s <= window_remaining_s <= cfg.entry_window_max_s):
-        return None
-    m = state.quotes.get(slug)
-    if not m:
-        return None
-    if (now_ns - m.timestamp_ns) / 1e9 > CONFIG.stale_polymarket_s:
-        return None
-    if m.yes_ask - m.yes_bid > cfg.max_spread:
-        return None
-    yes_mid = (m.yes_bid + m.yes_ask) / 2.0
-    if not (cfg.min_yes_mid <= yes_mid <= cfg.max_yes_mid):
-        return None
-    # Momentum: BTC premik v zadnjih momentum_window_s sekundah
-    momentum = get_trend(state, cfg.momentum_window_s)
-    if abs(momentum) < cfg.min_momentum_pct / 100.0:
-        return None
-    buf = state.price_buffer.get("btcusdt")
-    if not buf:
-        return None
-    bn_now = buf[-1][1]
-    if momentum > 0:
-        direction = "BUY_YES"
-        side = "YES"
-        taker_price = round(m.yes_ask, 3)
-        edge = yes_mid - 0.5
-    else:
-        direction = "BUY_NO"
-        side = "NO"
-        taker_price = round(1.0 - m.yes_bid, 3)
-        edge = 0.5 - yes_mid
-    if edge <= 0:
-        return None
-    log(
-        "INFO",
-        "strategy",
-        f"[FAST_SCALP] {direction} @ {taker_price:.3f} "
-        f"momentum={momentum*100:+.3f}% mid={yes_mid:.3f} window={window_remaining_s:.0f}s",
-    )
-    return {
-        "slug": slug,
-        "direction": direction,
-        "taker_price": taker_price,
-        "exec_edge": round(edge, 3),
-        "fair": yes_mid,
-        "yes_bid": m.yes_bid,
-        "yes_ask": m.yes_ask,
-        "window_remaining_s": window_remaining_s,
-        "order_type": "FOK",
-        "mode_label": "FAST_SCALP",
-        "binance_current": bn_now,
-    }
-
-
-# ── ZONE FLIP SIGNAL — BSM cona 0.67-0.70 zadnjih 120s ─────
+# ── ZONE FLIP SIGNAL — yes_mid cona 0.67-0.70 zadnjih 120s ──
 
 
 def compute_zone_flip_signal(
@@ -627,38 +564,6 @@ def on_new_tick(
         return
 
     # === INDEPENDENT STRATEGIES — bypass can_trade() ===
-
-    # FAST_SCALP
-    if FAST_SCALP_CONFIG.enabled:
-        fs = compute_fast_scalp_signal(slug, state, now_ns)
-        if fs is not None:
-            fs_side = "YES" if fs["direction"] == "BUY_YES" else "NO"
-            fs_key = f"{slug}_{fs_side}"
-            if fs_key not in state.fast_scalp_positions and fs_key not in state.fast_scalp_pending:
-                fs_size = risk.compute_risk_sized_amount(FAST_SCALP_CONFIG.kelly_fraction)
-                if fs_size > 0:
-                    asyncio.create_task(
-                        execution.receive_signal(Signal(
-                            slug=slug,
-                            token_id=(m.yes_id if fs["direction"] == "BUY_YES" else m.no_id),
-                            side=fs_side,
-                            price=fs["taker_price"],
-                            size_usdc=fs_size,
-                            signal_ns=now_ns,
-                            binance_ref_price=fs["binance_current"],
-                            binance_ref_ns=buf[-1][0] if buf else now_ns,
-                            edge_estimate=fs["exec_edge"],
-                            order_type="FOK",
-                            mode="FAST_SCALP",
-                        )),
-                        name=f"fastscalp_{slug}_{now_ns}",
-                    )
-                    asyncio.create_task(log_signal(
-                        slug=slug, signal_dict=fs, scored=None,
-                        sigma=state.sigmas.get("btcusdt", 0.0),
-                        btc_price=fs["binance_current"],
-                        sent=True, mode_label="FAST_SCALP",
-                    ))
 
     # ZONE_FLIP
     if ZONE_FLIP_CONFIG.enabled:

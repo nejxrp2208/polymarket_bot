@@ -10,7 +10,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING
 
-from config import EXIT_CONFIG, EXTREME_ZONE_CONFIG, FAST_SCALP_CONFIG, STRATEGY_CONFIG, ZONE_FLIP_CONFIG
+from config import EXIT_CONFIG, EXTREME_ZONE_CONFIG, STRATEGY_CONFIG, ZONE_FLIP_CONFIG
 from logging_.db import log_exit
 from state import PositionState, Signal, State
 from utils.helpers import log
@@ -25,9 +25,7 @@ if TYPE_CHECKING:
 
 
 def _pop_independent_position(pos_key: str, mode: str, state: State) -> None:
-    if mode == "FAST_SCALP":
-        state.fast_scalp_positions.pop(pos_key, None)
-    elif mode == "ZONE_FLIP":
+    if mode == "ZONE_FLIP":
         state.zone_flip_positions.pop(pos_key, None)
     elif mode == "EXTREME_ZONE":
         state.extreme_zone_positions.pop(pos_key, None)
@@ -139,24 +137,6 @@ async def _handle_independent_market_expiry(
 
 
 # ── Mode-specific exit checks ────────────────────────────────
-
-
-async def _check_fast_scalp_exit(
-    pos: PositionState,
-    pos_key: str,
-    state: State,
-    execution: ExecutionLayer,
-    risk: RiskManager,
-    yes_mid: float,
-) -> None:
-    mid = yes_mid if pos.side == "YES" else 1.0 - yes_mid
-    unrealized = mid - pos.entry_price
-    if unrealized >= FAST_SCALP_CONFIG.take_profit_cents:
-        log("INFO", "exit", f"[FAST_SCALP] take-profit {pos.side} | unrealized={unrealized:+.3f}")
-        await _close_independent_position(pos, pos_key, "FAST_SCALP", state, execution, risk, "take_profit")
-    elif unrealized <= -FAST_SCALP_CONFIG.stop_loss_cents:
-        log("WARN", "exit", f"[FAST_SCALP] stop-loss {pos.side} | unrealized={unrealized:+.3f}")
-        await _close_independent_position(pos, pos_key, "FAST_SCALP", state, execution, risk, "stop_loss")
 
 
 async def _check_zone_flip_exit(
@@ -271,9 +251,7 @@ async def _check_independent_position(
         return
     yes_mid = (q.yes_bid + q.yes_ask) / 2.0
 
-    if mode == "FAST_SCALP":
-        await _check_fast_scalp_exit(pos, pos_key, state, execution, risk, yes_mid)
-    elif mode == "ZONE_FLIP":
+    if mode == "ZONE_FLIP":
         await _check_zone_flip_exit(pos, pos_key, state, execution, risk, yes_mid)
     elif mode == "EXTREME_ZONE":
         await _check_extreme_zone_exit(pos, pos_key, state, execution, risk, yes_mid)
@@ -469,7 +447,6 @@ async def exit_monitor_task(
     risk: RiskManager,
 ) -> None:
     INDEPENDENT_MODE_DICTS = [
-        ("FAST_SCALP", lambda s: s.fast_scalp_positions),
         ("ZONE_FLIP", lambda s: s.zone_flip_positions),
         ("EXTREME_ZONE", lambda s: s.extreme_zone_positions),
     ]

@@ -21,6 +21,14 @@ async def paper_fok_fill(
     """15% zavrnitev + spread drift check. Konzervativna ocena."""
     submit_ns = time.time_ns()
     await asyncio.sleep(EXEC_CONFIG.simulated_latency_ms / 1000)
+    fill_ns = submit_ns + int(EXEC_CONFIG.simulated_latency_ms * 1_000_000)
+    if signal.is_close:
+        return FillResult(
+            order_id=f"PAPER_FOK_{fill_ns}",
+            price=signal.price,
+            size_usdc=signal.size_usdc,
+            fill_ns=fill_ns,
+        )
     m = state.quotes.get(signal.slug)
     if m is None:
         return None

@@ -20,7 +20,7 @@ from py_clob_client.order_builder.constants import BUY
 import refs
 from config import CONFIG, EXEC_CONFIG, ExecutionConfig, RISK_CONFIG, STRATEGY_CONFIG
 
-INDEPENDENT_MODES = frozenset({"FAST_SCALP", "ZONE_FLIP", "EXTREME_ZONE"})
+INDEPENDENT_MODES = frozenset({"ZONE_FLIP", "EXTREME_ZONE"})
 from utils.telegram import notify_fill
 from execution.paper import paper_fok_fill, paper_gtc_fill
 from logging_.db import log_fill
@@ -104,8 +104,6 @@ class ExecutionLayer:
         self.state = state
 
     def _get_mode_pending(self, mode: str) -> set:
-        if mode == "FAST_SCALP":
-            return self.state.fast_scalp_pending
         if mode == "ZONE_FLIP":
             return self.state.zone_flip_pending
         if mode == "EXTREME_ZONE":
@@ -113,8 +111,6 @@ class ExecutionLayer:
         return self.state.pending_sides
 
     def _get_mode_positions(self, mode: str) -> dict:
-        if mode == "FAST_SCALP":
-            return self.state.fast_scalp_positions
         if mode == "ZONE_FLIP":
             return self.state.zone_flip_positions
         if mode == "EXTREME_ZONE":
@@ -218,18 +214,19 @@ class ExecutionLayer:
                     return ExecutionResult(
                         success=False, reject_reason="position_open"
                     )
-        if self.state.usdc_balance < signal.size_usdc + 0.10:
-            return ExecutionResult(
-                success=False, reject_reason="balance"
-            )
-        if not (
-            self.config.min_order_size_usdc
-            <= signal.size_usdc
-            <= self.config.max_order_size_usdc
-        ):
-            return ExecutionResult(
-                success=False, reject_reason="size"
-            )
+        if not signal.is_close:
+            if self.state.usdc_balance < signal.size_usdc + 0.10:
+                return ExecutionResult(
+                    success=False, reject_reason="balance"
+                )
+            if not (
+                self.config.min_order_size_usdc
+                <= signal.size_usdc
+                <= self.config.max_order_size_usdc
+            ):
+                return ExecutionResult(
+                    success=False, reject_reason="size"
+                )
         # edge_estimate=0 je bypass za exit signale
         if signal.edge_estimate > 0:
             req = self.state.fee_config.min_edge_required(signal.price)
