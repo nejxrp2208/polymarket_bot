@@ -41,6 +41,19 @@ async def _close_independent_position(
     reason: str,
 ) -> bool:
     """BUY nasprotne strani — NE SELL (bug #294). Vrne True ob uspehu."""
+    # Atomično pobriši pozicijo najprej — prepreči dvojno izvajanje
+    # (check_sl_now + exit_monitor_task lahko tečeta hkrati)
+    if mode == "ZONE_FLIP":
+        if pos_key not in state.zone_flip_positions:
+            return False
+        state.zone_flip_positions.pop(pos_key)
+    elif mode == "EXTREME_ZONE":
+        if pos_key not in state.extreme_zone_positions:
+            return False
+        state.extreme_zone_positions.pop(pos_key)
+    else:
+        return False
+
     m = state.markets.get(pos.slug)
     q = state.quotes.get(pos.slug)
     if not m or not q:
@@ -87,10 +100,14 @@ async def _close_independent_position(
             fee_usdc=pos.fee_usdc,
             reason=reason,
         )
-        _pop_independent_position(pos_key, mode, state)
         log("INFO", "exit", f"[{mode}] {reason} | {pos.side} entry={pos.entry_price:.3f} exit={exit_value:.3f} pnl={pnl:+.2f}")
         notify_exit(pos.side, pos.entry_price, exit_value, pnl, reason, pos.slug)
         return True
+    # Če fill ni uspel, vrni pozicijo nazaj
+    if mode == "ZONE_FLIP":
+        state.zone_flip_positions[pos_key] = pos
+    elif mode == "EXTREME_ZONE":
+        state.extreme_zone_positions[pos_key] = pos
     return False
 
 

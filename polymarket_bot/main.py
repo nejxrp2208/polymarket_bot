@@ -275,14 +275,6 @@ async def main() -> None:
     await init_current_market(state)
     notify_start(exec_cfg.mode, state.usdc_balance)
 
-    loop = asyncio.get_running_loop()
-    if sys.platform != "win32":
-        for sig in (_signal.SIGINT, _signal.SIGTERM):
-            loop.add_signal_handler(
-                sig,
-                lambda: asyncio.create_task(shutdown(state)),
-            )
-
     # ── TaskGroup: 11 taskov ─────────────────────────────
     async with asyncio.TaskGroup() as tg:
         tg.create_task(
@@ -350,7 +342,7 @@ async def main() -> None:
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         if refs.global_state is not None:
             flush_all_sync()
             session_stats()
@@ -358,6 +350,11 @@ if __name__ == "__main__":
                 snap = refs.global_state.snapshot()
                 with open("state_snapshot.json", "w") as f:
                     json.dump(snap, f)
+            except Exception:
+                pass
+            try:
+                import asyncio as _asyncio
+                _asyncio.run(shutdown(refs.global_state))
             except Exception:
                 pass
         print("[SHUTDOWN] Ustavljeno (Ctrl+C)")
