@@ -241,7 +241,7 @@ def _build_layout(state: State, trade_log: list) -> Layout:
 
 
 async def dashboard_task(state: State, trade_log: list) -> None:
-    with Live(console=console, refresh_per_second=4, screen=True) as live:
+    with Live(console=console, refresh_per_second=1, screen=False) as live:
         while True:
             try:
                 live.update(_build_layout(state, trade_log))
