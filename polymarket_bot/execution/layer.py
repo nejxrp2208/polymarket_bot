@@ -291,7 +291,8 @@ class ExecutionLayer:
         lat_fill = (fill.fill_ns - signal.signal_ns) / 1_000_000
         lat_total = (fill.fill_ns - signal.binance_ref_ns) / 1_000_000
 
-        self.state.usdc_balance -= fill.size_usdc + fee_usdc
+        if not signal.is_close:
+            self.state.usdc_balance -= fill.size_usdc + fee_usdc
         self.state.last_fee_paid_usdc = fee_usdc
         self.state.last_fill_price = fill.price
         self.state.last_order_id = fill.order_id

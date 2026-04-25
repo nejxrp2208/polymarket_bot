@@ -120,8 +120,8 @@ class FastScalpConfig:
     entry_window_min_s: int = 45
     entry_window_max_s: int = 240
     # Exit thresholdi
-    take_profit_cents: float = 0.07     # +7c profit exit
-    stop_loss_cents: float = 0.12       # -12c stop loss
+    take_profit_cents: float = 0.12     # +12c profit exit
+    stop_loss_cents: float = 0.07       # -7c stop loss
     # Market filter
     max_spread: float = 0.08            # tighter spread req
     min_yes_mid: float = 0.35           # ne trguj na ekstremih
