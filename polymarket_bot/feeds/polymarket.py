@@ -143,6 +143,9 @@ async def polymarket_stream(state: State) -> None:
                                     check_sl_now(slug, mid, state),
                                     name=f"sl_check_{slug}_{time.time_ns()}",
                                 )
+                                from strategy.signal import on_new_tick
+                                now_ns = time.time_ns()
+                                on_new_tick(slug, state, now_ns, refs.execution_ref, refs.risk_ref)
                             state.last_polymarket_tick_ns[slug] = time.time_ns()
                             side = "YES" if asset_id == m.yes_id else "NO"
                             asyncio.create_task(
