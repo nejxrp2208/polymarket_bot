@@ -149,12 +149,21 @@ def build_middle_panel(state: State) -> Panel:
 
     lines.append("[bold]active trades[/bold]")
     lines.append(
-        "[dim]market          side   entry    size    unreal pnl[/dim]"
+        "[dim]mode        side   entry    size    unreal pnl[/dim]"
     )
 
-    positions = list(state.open_positions.values())
-    if positions:
-        for pos in positions:
+    all_positions = []
+    for pos in state.open_positions.values():
+        all_positions.append((pos, pos.entry_mode))
+    for pos in state.fast_scalp_positions.values():
+        all_positions.append((pos, "FAST_SCALP"))
+    for pos in state.zone_flip_positions.values():
+        all_positions.append((pos, "ZONE_FLIP"))
+    for pos in state.extreme_zone_positions.values():
+        all_positions.append((pos, "EXTREME_ZONE"))
+
+    if all_positions:
+        for pos, mode in all_positions:
             q2 = state.quotes.get(pos.slug)
             mid = 0.0
             if q2:
@@ -170,8 +179,9 @@ def build_middle_panel(state: State) -> Panel:
                 else f"[red]-${abs(unreal):.2f}[/red]"
             )
             side_color = "green" if pos.side == "YES" else "red"
+            mode_short = mode[:10].ljust(10)
             lines.append(
-                f"…{pos.slug[-10:]}  "
+                f"[dim]{mode_short}[/dim]  "
                 f"[{side_color}]{pos.side}[/{side_color}]  "
                 f"{pos.entry_price:.3f}   "
                 f"${pos.size_usdc:.2f}   "

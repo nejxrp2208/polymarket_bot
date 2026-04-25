@@ -19,6 +19,8 @@ from py_clob_client.order_builder.constants import BUY
 
 import refs
 from config import CONFIG, EXEC_CONFIG, ExecutionConfig, RISK_CONFIG, STRATEGY_CONFIG
+
+INDEPENDENT_MODES = frozenset({"FAST_SCALP", "ZONE_FLIP", "EXTREME_ZONE"})
 from utils.telegram import notify_fill
 from execution.paper import paper_fok_fill, paper_gtc_fill
 from logging_.db import log_fill
@@ -101,33 +103,59 @@ class ExecutionLayer:
         self.config = config
         self.state = state
 
+    def _get_mode_pending(self, mode: str) -> set:
+        if mode == "FAST_SCALP":
+            return self.state.fast_scalp_pending
+        if mode == "ZONE_FLIP":
+            return self.state.zone_flip_pending
+        if mode == "EXTREME_ZONE":
+            return self.state.extreme_zone_pending
+        return self.state.pending_sides
+
+    def _get_mode_positions(self, mode: str) -> dict:
+        if mode == "FAST_SCALP":
+            return self.state.fast_scalp_positions
+        if mode == "ZONE_FLIP":
+            return self.state.zone_flip_positions
+        if mode == "EXTREME_ZONE":
+            return self.state.extreme_zone_positions
+        return self.state.open_positions
+
     async def receive_signal(
         self, signal: Signal
     ) -> ExecutionResult:
-        lock = self.state._order_locks.setdefault(
-            signal.side, asyncio.Lock()
-        )
+        # Independent entry signals get per-mode lock + pending
+        if signal.mode in INDEPENDENT_MODES and not signal.is_close:
+            lock_key = f"{signal.mode}_{signal.slug}_{signal.side}"
+            pos_key = f"{signal.slug}_{signal.side}"
+            mode_pending = self._get_mode_pending(signal.mode)
+        else:
+            lock_key = signal.side
+            pos_key = signal.side
+            mode_pending = self.state.pending_sides
+
+        lock = self.state._order_locks.setdefault(lock_key, asyncio.Lock())
         if lock.locked():
             return ExecutionResult(
                 success=False, reject_reason="lock_busy"
             )
         async with lock:
-            result = self._run_prechecks(signal)
+            result = self._run_prechecks(signal, pos_key, mode_pending)
             if result is not None:
                 return result
-            self.state.pending_sides.add(signal.side)
+            mode_pending.add(pos_key)
             order_id = None
             submit_ns = 0
             try:
                 order_id, submit_ns = await self._submit_order(signal)
             except asyncio.CancelledError:
-                self.state.pending_sides.discard(signal.side)
+                mode_pending.discard(pos_key)
                 raise
             except Exception as e:
                 log("ERROR", "execution", f"submit: {e}")
             finally:
                 if order_id is None:
-                    self.state.pending_sides.discard(signal.side)
+                    mode_pending.discard(pos_key)
             if order_id is None:
                 return ExecutionResult(
                     success=False, reject_reason="submit_failed"
@@ -139,11 +167,11 @@ class ExecutionLayer:
                 order_id, signal, submit_ns
             )
         except asyncio.CancelledError:
-            self.state.pending_sides.discard(signal.side)
+            mode_pending.discard(pos_key)
             raise
         finally:
             if fill is None:
-                self.state.pending_sides.discard(signal.side)
+                mode_pending.discard(pos_key)
 
         if fill is None:
             await self._on_timeout(order_id, signal)
@@ -151,13 +179,15 @@ class ExecutionLayer:
                 success=False, reject_reason="timeout"
             )
 
-        return await self._on_fill(fill, signal, submit_ns)
+        return await self._on_fill(fill, signal, submit_ns, pos_key, mode_pending)
 
     def _run_prechecks(
-        self, signal: Signal
+        self, signal: Signal, pos_key: str, mode_pending: set
     ) -> ExecutionResult | None:
         now_ns = time.time_ns()
-        if now_ns < self.state.cooldown_until_ns:
+        is_independent = signal.mode in INDEPENDENT_MODES
+        # Cooldown: samo za mutex strategije
+        if not is_independent and now_ns < self.state.cooldown_until_ns:
             return ExecutionResult(
                 success=False, reject_reason="cooldown"
             )
@@ -170,13 +200,24 @@ class ExecutionLayer:
             return ExecutionResult(
                 success=False, reject_reason="expiry_too_close"
             )
-        if not signal.is_close and (
-            signal.side in self.state.open_positions
-            or signal.side in self.state.pending_sides
-        ):
-            return ExecutionResult(
-                success=False, reject_reason="position_open"
-            )
+        if not signal.is_close:
+            if pos_key in mode_pending:
+                return ExecutionResult(
+                    success=False, reject_reason="position_open"
+                )
+            if is_independent:
+                if pos_key in self._get_mode_positions(signal.mode):
+                    return ExecutionResult(
+                        success=False, reject_reason="position_open"
+                    )
+            else:
+                if (
+                    signal.side in self.state.open_positions
+                    or signal.side in self.state.pending_sides
+                ):
+                    return ExecutionResult(
+                        success=False, reject_reason="position_open"
+                    )
         if self.state.usdc_balance < signal.size_usdc + 0.10:
             return ExecutionResult(
                 success=False, reject_reason="balance"
@@ -269,13 +310,14 @@ class ExecutionLayer:
         )
 
     async def _on_fill(
-        self, fill: FillResult, signal: Signal, submit_ns: int
+        self, fill: FillResult, signal: Signal, submit_ns: int,
+        pos_key: str, mode_pending: set,
     ) -> ExecutionResult:
         now_ns = time.time_ns()
+        is_independent = signal.mode in INDEPENDENT_MODES
         # Maker = 0 fee, taker = normalni fee
         if signal.order_type == "GTC":
             fee_usdc = 0.0
-            # 20% rebate od taker-jevega feea
             counterparty_fee = self.state.fee_config.fee_usdc(
                 fill.price, fill.size_usdc
             )
@@ -296,19 +338,20 @@ class ExecutionLayer:
         self.state.last_fee_paid_usdc = fee_usdc
         self.state.last_fill_price = fill.price
         self.state.last_order_id = fill.order_id
-        self.state.pending_sides.discard(signal.side)
+        mode_pending.discard(pos_key)
 
         if not signal.is_close:
             self.state.trades_this_session += 1
-            self.state.cooldown_until_ns = now_ns + int(
-                self.config.cooldown_sec * 1e9
-            )
-            self.state.last_signal_ns[signal.slug] = now_ns
+            if not is_independent:
+                self.state.cooldown_until_ns = now_ns + int(
+                    self.config.cooldown_sec * 1e9
+                )
+                self.state.last_signal_ns[signal.slug] = now_ns
 
-        # Risk + position tracking (close signali ne štejejo kot nova pozicija)
+        # Risk + position tracking
         if not signal.is_close:
             refs.risk_ref.on_fill()
-            self.state.open_positions[signal.side] = PositionState(
+            pos = PositionState(
                 slug=signal.slug,
                 side=signal.side,
                 entry_price=fill.price,
@@ -318,15 +361,21 @@ class ExecutionLayer:
                 order_type=signal.order_type,
                 entry_mode=signal.mode,
             )
-            if signal.mode == "ZONE_FLIP":
-                self.state.zone_flip_positions[signal.side] = \
-                    self.state.open_positions[signal.side]
-            self.state.trades_this_window[signal.slug] = (
-                self.state.trades_this_window.get(signal.slug, 0) + 1
-            )
-            if signal.slug not in self.state.traded_directions:
-                self.state.traded_directions[signal.slug] = set()
-            self.state.traded_directions[signal.slug].add(signal.side)
+            if is_independent:
+                self._get_mode_positions(signal.mode)[pos_key] = pos
+                # "Enkrat per okno" dedup — blokira ponovni vstop iz signala
+                if signal.mode == "ZONE_FLIP":
+                    self.state.zone_flip_entered.add(pos_key)
+                elif signal.mode == "EXTREME_ZONE":
+                    self.state.extreme_zone_entered.add(pos_key)
+            else:
+                self.state.open_positions[signal.side] = pos
+                self.state.trades_this_window[signal.slug] = (
+                    self.state.trades_this_window.get(signal.slug, 0) + 1
+                )
+                if signal.slug not in self.state.traded_directions:
+                    self.state.traded_directions[signal.slug] = set()
+                self.state.traded_directions[signal.slug].add(signal.side)
             refs.trade_log.append(
                 {
                     "ts": datetime.now(timezone.utc).strftime("%H:%M:%S"),
@@ -335,6 +384,7 @@ class ExecutionLayer:
                     "pnl": 0.0,
                     "entry": fill.price,
                     "order_id": fill.order_id,
+                    "mode": signal.mode,
                 }
             )
             notify_fill(signal.side, fill.price, fill.size_usdc, signal.slug, self.config.mode)
@@ -376,7 +426,7 @@ class ExecutionLayer:
     async def _on_timeout(
         self, order_id: str, signal: Signal
     ) -> None:
-        self.state.pending_sides.discard(signal.side)
+        # mode_pending je bil že počiščen v finally bloku receive_signal
         if (
             self.config.mode == "live"
             and signal.order_type == "GTC"

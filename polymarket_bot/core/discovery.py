@@ -73,12 +73,19 @@ async def discovery_task(state: State) -> None:
                     "window_open_price: ni cene!",
                 )
 
-            # Reset per-window dedup
+            # Reset per-window dedup + independent positions
             state.trades_this_window.clear()
             state.traded_directions.clear()
             state.pending_directions.clear()
             state.zone_flip_positions.clear()
             state.zone_flip_reversed.clear()
+            state.fast_scalp_positions.clear()
+            state.extreme_zone_positions.clear()
+            state.fast_scalp_pending.clear()
+            state.zone_flip_pending.clear()
+            state.extreme_zone_pending.clear()
+            state.zone_flip_entered.clear()
+            state.extreme_zone_entered.clear()
 
         except asyncio.CancelledError:
             raise

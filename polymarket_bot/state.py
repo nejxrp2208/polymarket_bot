@@ -39,6 +39,7 @@ class PositionState:
     fee_usdc: float = 0.0
     order_type: str = "FOK"
     entry_mode: str = "BSM"  # "BSM" | "PRICE_LVL" | "EXPIRY"
+    fair_at_entry: float = 0.0
 
 
 @dataclass
@@ -148,9 +149,19 @@ class State:
     pending_directions: dict[str, set] = field(default_factory=dict)
     # slug → set of sides currently being dispatched this tick (dedup)
     zone_flip_positions: dict[str, "PositionState"] = field(default_factory=dict)
-    # key = "YES"|"NO" — ločen tracking za ZONE_FLIP pozicije
+    # key = f"{slug}_{side}" — ločen tracking za ZONE_FLIP pozicije
     zone_flip_reversed: dict[str, bool] = field(default_factory=dict)
     # slug → True če smo že naredili reversal v tem oknu
+    fast_scalp_positions: dict[str, "PositionState"] = field(default_factory=dict)
+    # key = f"{slug}_{side}"
+    extreme_zone_positions: dict[str, "PositionState"] = field(default_factory=dict)
+    # key = f"{slug}_{side}"
+    fast_scalp_pending: set = field(default_factory=set)
+    zone_flip_pending: set = field(default_factory=set)
+    extreme_zone_pending: set = field(default_factory=set)
+    zone_flip_entered: set = field(default_factory=set)
+    # f"{slug}_{side}" — blokira ponovni vstop iz signala v istem oknu
+    extreme_zone_entered: set = field(default_factory=set)
 
     # ── Balance + execution ──────────────────────────────
     usdc_balance: float = 0.0

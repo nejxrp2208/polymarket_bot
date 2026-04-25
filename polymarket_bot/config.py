@@ -124,8 +124,8 @@ class FastScalpConfig:
     stop_loss_cents: float = 0.07       # -7c stop loss
     # Market filter
     max_spread: float = 0.08            # tighter spread req
-    min_yes_mid: float = 0.35           # ne trguj na ekstremih
-    max_yes_mid: float = 0.65
+    min_yes_mid: float = 0.05           # ne trguj na absolutnih ekstremih
+    max_yes_mid: float = 0.95
     # Sizing: manjša pozicija
     kelly_fraction: float = 0.25        # quarter of normal kelly
 
@@ -146,3 +146,19 @@ class ZoneFlipConfig:
 
 
 ZONE_FLIP_CONFIG = ZoneFlipConfig()
+
+
+@dataclass
+class ExtremeZoneConfig:
+    enabled: bool = True
+    entry_window_max_s: int = 70       # samo zadnjih 70s pred expiry
+    entry_zone_low: float = 0.91       # BSM fair YES zona: 0.91-0.95
+    entry_zone_high: float = 0.95
+    stop_loss_yes_mid_low: float = 0.67   # stop YES če yes_mid pade pod 0.67
+    stop_loss_yes_mid_high: float = 0.33  # stop NO če yes_mid zraste nad 0.33
+    max_spread: float = 0.04
+    kelly_fraction: float = 0.10
+    reversal_enabled: bool = False
+
+
+EXTREME_ZONE_CONFIG = ExtremeZoneConfig()
