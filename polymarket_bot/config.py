@@ -141,7 +141,11 @@ class ZoneFlipConfig:
     entry_zone_high: float = 0.70
     stop_loss_yes_mid_low: float = 0.28
     stop_loss_yes_mid_high: float = 0.72
-    no_reversal_last_s: int = 7
+    no_reversal_last_s: int = 20
+    late_stop_loss_low: float = 0.45
+    late_stop_loss_high: float = 0.55
+    take_profit_high: float = 0.98
+    take_profit_low: float = 0.02
     max_spread: float = 0.06
     kelly_fraction: float = 0.30
 

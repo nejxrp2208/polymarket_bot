@@ -166,15 +166,38 @@ async def _check_zone_flip_exit(
 ) -> None:
     cfg = ZONE_FLIP_CONFIG
     slug = pos.slug
+
+    # Izračun časa do izteka
+    try:
+        window_ts = int(slug.split("-")[-1])
+        secs_left = (window_ts + 300) - time.time()
+    except (ValueError, IndexError):
+        secs_left = 999
+
+    # Take-profit: yes_mid >= 0.98 (YES) ali <= 0.02 (NO)
+    tp_triggered = (
+        (pos.side == "YES" and yes_mid >= cfg.take_profit_high) or
+        (pos.side == "NO" and yes_mid <= cfg.take_profit_low)
+    )
+    if tp_triggered:
+        log("INFO", "exit", f"[ZONE_FLIP] take-profit {pos.side} | yes_mid={yes_mid:.3f}")
+        await _close_independent_position(pos, pos_key, "ZONE_FLIP", state, execution, risk, "take_profit")
+        return
+
     if state.zone_flip_reversed.get(slug, False):
         return
 
+    # Zadnjih 20 sekund: SL na 0.45/0.55, brez reversala
+    in_late_window = secs_left <= cfg.no_reversal_last_s
+    sl_low = cfg.late_stop_loss_low if in_late_window else cfg.stop_loss_yes_mid_low
+    sl_high = cfg.late_stop_loss_high if in_late_window else cfg.stop_loss_yes_mid_high
+
     stop_triggered = False
-    if pos.side == "YES" and yes_mid <= cfg.stop_loss_yes_mid_low:
-        log("WARN", "exit", f"[ZONE_FLIP] stop YES | yes_mid={yes_mid:.3f} <= {cfg.stop_loss_yes_mid_low}")
+    if pos.side == "YES" and yes_mid <= sl_low:
+        log("WARN", "exit", f"[ZONE_FLIP] stop YES | yes_mid={yes_mid:.3f} <= {sl_low} (late={in_late_window})")
         stop_triggered = True
-    elif pos.side == "NO" and yes_mid >= cfg.stop_loss_yes_mid_high:
-        log("WARN", "exit", f"[ZONE_FLIP] stop NO | yes_mid={yes_mid:.3f} >= {cfg.stop_loss_yes_mid_high}")
+    elif pos.side == "NO" and yes_mid >= sl_high:
+        log("WARN", "exit", f"[ZONE_FLIP] stop NO | yes_mid={yes_mid:.3f} >= {sl_high} (late={in_late_window})")
         stop_triggered = True
 
     if not stop_triggered:
@@ -186,14 +209,8 @@ async def _check_zone_flip_exit(
 
     state.zone_flip_reversed[slug] = True
 
-    # Zadnjih no_reversal_last_s sekund — samo SL, brez reversala
-    try:
-        window_ts = int(slug.split("-")[-1])
-        secs_left = (window_ts + 300) - time.time()
-    except (ValueError, IndexError):
-        secs_left = 999
-    if secs_left <= cfg.no_reversal_last_s:
-        log("INFO", "exit", f"[ZONE_FLIP] stop-only (zadnjih {cfg.no_reversal_last_s}s) — brez reversala")
+    if in_late_window:
+        log("INFO", "exit", f"[ZONE_FLIP] late stop — brez reversala")
         return
 
     # Odpri reversal pozicijo
